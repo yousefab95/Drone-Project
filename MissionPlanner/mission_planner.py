@@ -40,6 +40,8 @@ class MissionPlanner:
         # TODO: We are going to let the user set this up in a future iteration
         self.toolbar = self.iface.addToolBar(u'Mission Planner')
         self.toolbar.setObjectName(u'Mission Planner')
+        # store layer id
+        self.layerid = ''
 
     def tr(self, message):
         return QCoreApplication.translate('Mission Planner', message)
@@ -97,34 +99,31 @@ class MissionPlanner:
         self.canvas.setMapTool(self.clickTool) #clickTool is activated
 
     def clickHandler(self, event):
-        layerName = "point"
-        # Specify the geometry type
-        layer = QgsVectorLayer('Point?crs=epsg:4326', layerName , 'memory')
-         
-        # Set the provider to accept the data source
-        prov = layer.dataProvider()
-           
+        if not QgsMapLayerRegistry.instance().mapLayer(self.layerid) :
+            layerName = "Mission"
+            # Specify the geometry type
+            self.layer = QgsVectorLayer('Point?crs=epsg:4326', layerName , 'memory')
+            self.provider = self.layer.dataProvider()
+            self.layer.updateFields()
+            # Add the layer to the Layers panel
+            QgsMapLayerRegistry.instance().addMapLayer(self.layer)
+            # store layer id
+            self.layerid = QgsMapLayerRegistry.instance().mapLayers().keys()[-1]
+     
         # Add a new feature and assign the geometry
         feat = QgsFeature()
-
         x = event.x()
         y = event.y()
         point = QgsPoint(x,y)
-        #point = self.canvas.getCoordinateTransform().toMapCoordinates(x, y)
-        
-
         feat.setGeometry(QgsGeometry.fromPoint(point))
-        prov.addFeatures([feat])
-         
+        feat.initAttributes(1)
+        self.provider.addFeatures( [ feat ] )  
+        
         # Update extent of the layer
-        layer.updateExtents()
-         
-        # Add the layer to the Layers panel
-        QgsMapLayerRegistry.instance().addMapLayers([layer])
-
-        self.dlg.showNormal()
-        self.canvas.show()
+        self.layer.updateExtents()
+                
         self.canvas.unsetMapTool(self.clickTool) #Close click tool
+        self.layer.triggerRepaint()
 
     def clickToolActivator(self, pointCount):
         self.clickTool = QgsMapToolEmitPoint(self.canvas) #clicktool instance generated in here.
@@ -143,14 +142,11 @@ class MissionPlanner:
 
     def run(self):
         pointCount = 0
-        # self.routeEngine = RouteProvider()
         self.canvas = self.iface.mapCanvas()
         self.dlg = MissionPlannerDialog()
         self.dlg.setFixedSize(self.dlg.size())
         marker = 'http://bit.ly/aUwrKs'
-        # self.routeMaker(str(QgsPoint.x()) + ',' + str(QgsPoint.y()))
-        # self.dlg.startBtn.clicked.connect(lambda : self.toolActivator(self.dlg.startTxt))
-        # self.dlg.stopBtn.clicked.connect(lambda : self.toolActivator(self.dlg.stopTxt))
         self.dlg.runBtn.clicked.connect(lambda : self.clickToolActivator(pointCount))
 
         self.dlg.show()
+        self.canvas.refresh()
