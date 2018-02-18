@@ -91,19 +91,25 @@ class MissionPlanner:
             callback=self.run,
             parent=self.iface.mainWindow())
 
-    def toolActivator(self, QLineEdit):
-        # self.dlg.showMinimized()
-        global whichTextBox
-        whichTextBox = QLineEdit #I find this way to control it
-        self.clickTool.canvasClicked.connect(self.clickHandler)
-        self.canvas.setMapTool(self.clickTool) #clickTool is activated
-
     def clickHandler(self, event):
+        self.counter = self.counter + 1     #increment the coutner of points
         if not QgsMapLayerRegistry.instance().mapLayer(self.layerid) :
             layerName = "Mission"
             # Specify the geometry type
             self.layer = QgsVectorLayer('Point?crs=epsg:4326', layerName , 'memory')
             self.provider = self.layer.dataProvider()
+
+            # add fields
+            self.provider.addAttributes( [QgsField("count", QVariant.Double)] )
+            self.layer.updateFields()
+            self.provider.addAttributes( [QgsField("mission", QVariant.String)] )
+            self.layer.updateFields()
+
+            # Labels on
+            label = self.layer.label()
+            label.setLabelField(QgsLabel.Text, 0) 
+            self.layer.enableLabels(True)
+            
             self.layer.updateFields()
             # Add the layer to the Layers panel
             QgsMapLayerRegistry.instance().addMapLayer(self.layer)
@@ -116,19 +122,26 @@ class MissionPlanner:
         y = event.y()
         point = QgsPoint(x,y)
         feat.setGeometry(QgsGeometry.fromPoint(point))
-        feat.initAttributes(1)
+        feat.initAttributes(2)
+        feat[0] = self.counter
+        feat[1] = "mission"
+        #feat.setAttribute("count", self.counter)
+        #feat.setAttribute("mission", "mission")
         self.provider.addFeatures( [ feat ] )  
         
         # Update extent of the layer
         self.layer.updateExtents()
                 
-        self.canvas.unsetMapTool(self.clickTool) #Close click tool
         self.layer.triggerRepaint()
+        self.dlg.comBtn.clicked.connect(lambda : self.completeMission())
 
-    def clickToolActivator(self, pointCount):
+    def clickToolActivator(self, counter):
         self.clickTool = QgsMapToolEmitPoint(self.canvas) #clicktool instance generated in here.
         self.clickTool.canvasClicked.connect(self.clickHandler)
         self.canvas.setMapTool(self.clickTool) #clickTool is activated
+
+    def completeMission(self):
+        self.canvas.unsetMapTool(self.clickTool) #Close click tool
 
     def unload(self):
         """Removes the plugin menu item and icon from QGIS GUI."""
@@ -141,12 +154,12 @@ class MissionPlanner:
         del self.toolbar
 
     def run(self):
-        pointCount = 0
+        self.counter = 0    #counts the number of points
         self.canvas = self.iface.mapCanvas()
         self.dlg = MissionPlannerDialog()
         self.dlg.setFixedSize(self.dlg.size())
         marker = 'http://bit.ly/aUwrKs'
-        self.dlg.runBtn.clicked.connect(lambda : self.clickToolActivator(pointCount))
+        self.dlg.runBtn.clicked.connect(lambda : self.clickToolActivator(self.counter))
 
         self.dlg.show()
         self.canvas.refresh()
