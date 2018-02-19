@@ -37,7 +37,7 @@ class MissionPlanner:
         # Declare instance attributes
         self.actions = []
         self.menu = self.tr(u'&Mission Planner')
-        # TODO: We are going to let the user set this up in a future iteration
+
         self.toolbar = self.iface.addToolBar(u'Mission Planner')
         self.toolbar.setObjectName(u'Mission Planner')
         # store layer id
@@ -96,7 +96,7 @@ class MissionPlanner:
         if not QgsMapLayerRegistry.instance().mapLayer(self.layerid) :
             layerName = "Mission"
             # Specify the geometry type
-            self.layer = QgsVectorLayer('Point?crs=epsg:4326', layerName , 'memory')
+            self.layer = QgsVectorLayer('Point?crs=epsg:3857', layerName , 'memory')
             self.provider = self.layer.dataProvider()
 
             # add fields
@@ -104,6 +104,10 @@ class MissionPlanner:
             self.layer.updateFields()
             self.provider.addAttributes( [QgsField("mission", QVariant.String)] )
             self.layer.updateFields()
+            self.provider.addAttributes( [QgsField("Lat", QVariant.Double)] )
+            self.layer.updateFields()
+            self.provider.addAttributes( [QgsField("Lon", QVariant.Double)] )
+            self.layer.updateFields()         
 
             # Labels on
             label = self.layer.label()
@@ -118,22 +122,34 @@ class MissionPlanner:
      
         # Add a new feature and assign the geometry
         feat = QgsFeature()
+        self.feat = feat
         x = event.x()
         y = event.y()
         point = QgsPoint(x,y)
         feat.setGeometry(QgsGeometry.fromPoint(point))
-        feat.initAttributes(2)
-        feat[0] = self.counter
-        feat[1] = "mission"
-        #feat.setAttribute("count", self.counter)
-        #feat.setAttribute("mission", "mission")
-        self.provider.addFeatures( [ feat ] )  
+
+        #Convert point coordinates to latlon
+        canvasCRS = self.canvas.mapSettings().destinationCrs()
+        if canvasCRS == self.epsg4326:
+            pt4326 = point
+        else:
+            transform = QgsCoordinateTransform(canvasCRS, self.epsg4326)
+            pt4326 = transform.transform(point.x(), point.y())      
+
+        #Set attributes for the point feature
+        feat.initAttributes(4)
+        feat[0] = self.counter  #Order of points
+        feat[1] = "mission"     #Label of points
+        feat[2] = pt4326.y()    #Latitude of point
+        feat[3] = pt4326.x()    #Longitude of point
+
+        self.provider.addFeatures( [ feat ] )  #adds feature to the layer
         
         # Update extent of the layer
         self.layer.updateExtents()
                 
         self.layer.triggerRepaint()
-        self.dlg.comBtn.clicked.connect(lambda : self.completeMission())
+        self.dlg.comBtn.clicked.connect(lambda : self.completeMission()) #Complete creation of mission
 
     def clickToolActivator(self, counter):
         self.clickTool = QgsMapToolEmitPoint(self.canvas) #clicktool instance generated in here.
@@ -142,6 +158,24 @@ class MissionPlanner:
 
     def completeMission(self):
         self.canvas.unsetMapTool(self.clickTool) #Close click tool
+        self.points = self.provider.getFeatures()
+        point1 = self.points.nextFeature(self.feat)
+        point2 = self.points.nextFeature(self.feat)
+        self.verticies = [point1, point2]
+        layerName = "Paths"
+        # Specify the geometry type
+        lay = QgsVectorLayer('Point?crs=epsg:3857', layerName , 'memory')
+        prov = self.layer.dataProvider()
+        lay.updateFields()
+        # Add the layer to the Layers panel
+        QgsMapLayerRegistry.instance().addMapLayer(lay)
+        fet = QgsFeature()
+        #for loop to connect points with lines
+        #self.verticies = [QgsPoint(start[1], start[2]), QgsPoint(end[1], end[2])]
+        fet.setGeometry(QgsGeometry.fromPolyline(self.verticies))
+        prov.addFeatures( [ fet ] )
+        lay.updateExtents()
+        lay.triggerRepaint()
 
     def unload(self):
         """Removes the plugin menu item and icon from QGIS GUI."""
@@ -154,6 +188,12 @@ class MissionPlanner:
         del self.toolbar
 
     def run(self):
+        self.epsg4326 = QgsCoordinateReferenceSystem('EPSG:4326')
+        # Set project coordinate reference system to WGS84: 3857
+        self.iface.mapCanvas().mapRenderer().setProjectionsEnabled(True) # Enable on the fly reprojections
+        self.iface.mapCanvas().mapRenderer().setDestinationCrs(QgsCoordinateReferenceSystem(3857, QgsCoordinateReferenceSystem.PostgisCrsId))
+
+        #initialize counter and GUI
         self.counter = 0    #counts the number of points
         self.canvas = self.iface.mapCanvas()
         self.dlg = MissionPlannerDialog()
